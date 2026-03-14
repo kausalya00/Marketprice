@@ -1,0 +1,204 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dashboard</title>
+  <link rel="stylesheet" href="{% static 'frontend_app/style.css' %}"/>
+</head>
+<body>
+<div class="app-layout">
+
+  
+  <aside class="sidebar">
+    <div class="sidebar-brand">Marketplace</div>
+    <nav class="sidebar-nav">
+      <a class="nav-item active" onclick="showSection('users')" href="#">
+        <span class="nav-icon">👤</span> Users
+      </a>
+      <a class="nav-item" onclick="showSection('products')" href="#">
+        <span class="nav-icon">📦</span> Products
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="sidebarUser"></span>
+      <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+  </aside>
+
+  
+  <main class="main-content">
+
+    
+    <section id="section-users" class="section">
+      <div class="section-header">
+        <h2>User Profile</h2>
+      </div>
+      <div class="profile-card">
+        <div class="avatar" id="avatarInitial"></div>
+        <div class="profile-info">
+          <h3 id="profileUsername"></h3>
+          <p class="profile-sub">Logged in with JWT</p>
+          <p class="profile-sub" id="profileProductCount"></p>
+        </div>
+      </div>
+    </section>
+
+    
+    <section id="section-products" class="section" style="display:none">
+      <div class="section-header">
+        <h2>My Products</h2>
+        <button class="btn-primary" onclick="openAddModal()">+ Add Product</button>
+      </div>
+      <div id="productsGrid" class="products-grid"></div>
+    </section>
+
+  </main>
+</div>
+
+
+<div class="modal-overlay" id="productModal">
+  <div class="modal">
+    <h3 id="modalTitle">Add Product</h3>
+    <form id="productForm" onsubmit="saveProduct(event)" enctype="multipart/form-data">
+      <label>Product Name</label>
+      <input type="text" id="pName" placeholder="e.g. Wireless Headphones" required/>
+      <label>Price (₹)</label>
+      <input type="number" id="pPrice" placeholder="0.00" step="0.01" min="0" required/>
+      <label>Description</label>
+      <textarea id="pDesc" placeholder="Short description..." rows="3"></textarea>
+      <label>Image</label>
+      <input type="file" id="pImage" accept="image/*"/>
+      <p id="formError" class="error"></p>
+      <div class="modal-btns">
+        <button type="button" class="btn-cancel" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn-save" id="saveBtn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  const API = '/api';
+  const access = localStorage.getItem('access');
+  if (!access) window.location.href = '/';
+
+  const username = localStorage.getItem('username') || 'User';
+  document.getElementById('sidebarUser').textContent = username;
+  document.getElementById('profileUsername').textContent = username;
+  document.getElementById('avatarInitial').textContent = username.charAt(0).toUpperCase();
+
+  let editingId = null;
+
+  function authHeaders() {
+    return { 'Authorization': 'Bearer ' + access };
+  }
+
+  function showSection(name) {
+    document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById('section-' + name).style.display = 'block';
+    event.target.closest('.nav-item').classList.add('active');
+    if (name === 'products') loadProducts();
+    if (name === 'users') loadProfileStats();
+  }
+
+  async function loadProfileStats() {
+    const res = await fetch(`${API}/products/`, { headers: authHeaders() });
+    if (res.ok) {
+      const data = await res.json();
+      document.getElementById('profileProductCount').textContent = `${data.length} product(s) created`;
+    }
+  }
+
+  async function loadProducts() {
+    const res = await fetch(`${API}/products/`, { headers: authHeaders() });
+    if (!res.ok) { if (res.status === 401) logout(); return; }
+    const data = await res.json();
+    const grid = document.getElementById('productsGrid');
+    if (!data.length) {
+      grid.innerHTML = '<div class="empty-state">No products yet. Click "+ Add Product" to create one.</div>';
+      return;
+    }
+    grid.innerHTML = data.map(p => `
+      <div class="product-card">
+        <img src="${p.image_url || 'https://placehold.co/240x180?text=No+Image'}" alt="${p.name}"/>
+        <div class="product-info">
+          <h4>${p.name}</h4>
+          ${p.description ? `<p class="product-desc">${p.description}</p>` : ''}
+          <div class="price-display">₹${p.price}</div>
+          <div class="action-btns">
+            <button class="btn-edit" onclick="openEditModal(${p.id}, '${escStr(p.name)}', ${p.price}, '${escStr(p.description)}')">Edit</button>
+            <button class="btn-delete" onclick="deleteProduct(${p.id})">Delete</button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function escStr(s) { return (s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+
+  function openAddModal() {
+    editingId = null;
+    document.getElementById('modalTitle').textContent = 'Add Product';
+    document.getElementById('productForm').reset();
+    document.getElementById('formError').textContent = '';
+    document.getElementById('saveBtn').textContent = 'Add';
+    document.getElementById('productModal').classList.add('open');
+  }
+
+  function openEditModal(id, name, price, desc) {
+    editingId = id;
+    document.getElementById('modalTitle').textContent = 'Edit Product';
+    document.getElementById('pName').value = name;
+    document.getElementById('pPrice').value = price;
+    document.getElementById('pDesc').value = desc;
+    document.getElementById('formError').textContent = '';
+    document.getElementById('saveBtn').textContent = 'Save';
+    document.getElementById('productModal').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('productModal').classList.remove('open');
+    editingId = null;
+  }
+
+  async function saveProduct(e) {
+    e.preventDefault();
+    const form = new FormData();
+    form.append('name', document.getElementById('pName').value);
+    form.append('price', document.getElementById('pPrice').value);
+    form.append('description', document.getElementById('pDesc').value);
+    const img = document.getElementById('pImage').files[0];
+    if (img) form.append('image', img);
+
+    const url = editingId ? `${API}/products/${editingId}/` : `${API}/products/`;
+    const method = editingId ? 'PUT' : 'POST';
+
+    const res = await fetch(url, { method, headers: authHeaders(), body: form });
+    if (res.ok) {
+      closeModal();
+      loadProducts();
+    } else {
+      const err = await res.json();
+      document.getElementById('formError').textContent = JSON.stringify(err);
+    }
+  }
+
+  async function deleteProduct(id) {
+    if (!confirm('Delete this product?')) return;
+    await fetch(`${API}/products/${id}/`, { method: 'DELETE', headers: authHeaders() });
+    loadProducts();
+  }
+
+  function logout() {
+    localStorage.clear();
+    window.location.href = '/';
+  }
+
+  
+  loadProfileStats();
+</script>
+</body>
+</html>

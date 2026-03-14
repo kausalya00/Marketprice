@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Seller Dashboard</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div class="dashboard">
+  <nav class="navbar">
+    <h2>Seller Dashboard</h2>
+    <div style="display:flex;align-items:center;gap:16px">
+      <span id="welcomeMsg"></span>
+      <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+  </nav>
+
+  <div class="content">
+    
+    <div class="add-product-card">
+      <h3>Add New Product</h3>
+      <form id="addForm" onsubmit="addProduct(event)" enctype="multipart/form-data">
+        <div>
+          <label style="font-size:12px;color:#6b7280">Product Name</label>
+          <input type="text" id="pName" placeholder="Product name" required/>
+        </div>
+        <div>
+          <label style="font-size:12px;color:#6b7280">Price (₹)</label>
+          <input type="number" id="pPrice" placeholder="0.00" step="0.01" required/>
+        </div>
+        <div>
+          <label style="font-size:12px;color:#6b7280">Image</label>
+          <input type="file" id="pImage" accept="image/*" required/>
+        </div>
+        <button type="submit">Add Product</button>
+      </form>
+      <p id="addError" class="error" style="margin-top:8px"></p>
+    </div>
+
+    
+    <p class="section-title">My Products</p>
+    <div id="productsGrid" class="products-grid"></div>
+  </div>
+</div>
+
+
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <h3>Edit Product</h3>
+    <form onsubmit="saveEdit(event)">
+      <input type="text" id="editName" placeholder="Product name" required/>
+      <input type="number" id="editPrice" placeholder="Price" step="0.01" required/>
+      <input type="file" id="editImage" accept="image/*"/>
+      <div class="modal-btns">
+        <button type="button" class="btn-cancel" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn-save">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  const API = 'http://127.0.0.1:8080/api';
+  const token = localStorage.getItem('token');
+  const role = localStorage.getItem('role');
+
+  if (!token || role !== 'seller') window.location.href = 'index.html';
+
+  document.getElementById('welcomeMsg').textContent = 'Welcome, ' + localStorage.getItem('username');
+
+  let editingId = null;
+
+  function authHeaders() {
+    return { 'Authorization': 'Token ' + token };
+  }
+
+  async function loadProducts() {
+    const res = await fetch(`${API}/products/`, { headers: authHeaders() });
+    const data = await res.json();
+    const grid = document.getElementById('productsGrid');
+    if (!data.length) {
+      grid.innerHTML = '<div class="empty-state">No products yet. Add your first product above.</div>';
+      return;
+    }
+    grid.innerHTML = data.map(p => `
+      <div class="product-card">
+        <img src="${p.image_url || 'https://via.placeholder.com/240x180?text=No+Image'}" alt="${p.name}"/>
+        <div class="product-info">
+          <h4>${p.name}</h4>
+          <div class="price-display">₹${p.display_price}</div>
+          ${p.user_price ? `<div class="original-price">Original: ₹${p.original_price}</div>` : ''}
+          <div class="action-btns">
+            <button class="btn-edit" onclick="openEdit(${p.id}, '${p.name}', ${p.original_price})">Edit</button>
+            <button class="btn-delete" onclick="deleteProduct(${p.id})">Delete</button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  async function addProduct(e) {
+    e.preventDefault();
+    const form = new FormData();
+    form.append('name', document.getElementById('pName').value);
+    form.append('original_price', document.getElementById('pPrice').value);
+    form.append('image', document.getElementById('pImage').files[0]);
+
+    const res = await fetch(`${API}/products/`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: form
+    });
+    if (res.ok) {
+      document.getElementById('addForm').reset();
+      document.getElementById('addError').textContent = '';
+      loadProducts();
+    } else {
+      const err = await res.json();
+      document.getElementById('addError').textContent = JSON.stringify(err);
+    }
+  }
+
+  function openEdit(id, name, price) {
+    editingId = id;
+    document.getElementById('editName').value = name;
+    document.getElementById('editPrice').value = price;
+    document.getElementById('editModal').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('editModal').classList.remove('open');
+    editingId = null;
+  }
+
+  async function saveEdit(e) {
+    e.preventDefault();
+    const form = new FormData();
+    form.append('name', document.getElementById('editName').value);
+    form.append('original_price', document.getElementById('editPrice').value);
+    const img = document.getElementById('editImage').files[0];
+    if (img) form.append('image', img);
+
+    const res = await fetch(`${API}/products/${editingId}/`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: form
+    });
+    if (res.ok) { closeModal(); loadProducts(); }
+  }
+
+  async function deleteProduct(id) {
+    if (!confirm('Delete this product?')) return;
+    await fetch(`${API}/products/${id}/`, { method: 'DELETE', headers: authHeaders() });
+    loadProducts();
+  }
+
+  function logout() {
+    localStorage.clear();
+    window.location.href = 'index.html';
+  }
+
+  loadProducts();
+</script>
+</body>
+</html>
